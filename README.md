@@ -8,6 +8,9 @@
 > output **never** replaces a qualified clinician. All patient data is
 > **synthetic**. No real protected health information is stored or processed.
 
+The brief this was built against, and what is and is not finished, is in
+[REQUIREMENTS.md](REQUIREMENTS.md).
+
 A multi-agent system that reasons over **historical patient state + current
 symptoms + medical imaging + continuous physiological monitoring + retrieved
 clinical knowledge**, and produces an explainable, *longitudinal* assessment —
