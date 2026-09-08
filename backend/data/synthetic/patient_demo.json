@@ -1,0 +1,181 @@
+{
+  "_comment": "SYNTHETIC demo patient. No real protected health information. This file holds raw record data only; derived fields (risk_factors, history_multiplier, baseline_vulnerabilities, timeline) are computed by the History Agent in Phase 2, not stored here. A record that represents a durable clinical finding carries a `normalised` block: the coded form the History Agent consumes, so it never has to parse report prose. There is deliberately no separate top-level prior_findings list — that would be a second copy of facts already present in medical_records, and the two would drift.",
+  "patient": {
+    "id": "PT-DEMO-001",
+    "full_name": "Alex Morgan (synthetic)",
+    "birth_year": 1971,
+    "sex": "male",
+    "is_synthetic": true,
+    "notes": "Reference case for the respiratory MVP scenario: prior pulmonary abnormality plus an acute febrile respiratory presentation with falling SpO2."
+  },
+  "reference_date": "2026-09-08",
+
+  "medical_records": [
+    {
+      "id": "MR-001",
+      "occurred_on": "2024-03-01",
+      "category": "diagnosis",
+      "code": "I10",
+      "title": "Essential hypertension",
+      "is_chronic": true,
+      "is_active": true,
+      "clinical_dimension": "cardiac_rate",
+      "detail": { "bp_at_diagnosis": "152/94", "managed_by": "General Practice" }
+    },
+    {
+      "id": "MR-002",
+      "occurred_on": "2025-03-12",
+      "category": "imaging_report",
+      "title": "Chest X-ray — right lower lobe focal opacity",
+      "is_chronic": false,
+      "is_active": false,
+      "clinical_dimension": "pulmonary_imaging",
+      "detail": {
+        "modality": "chest_xray",
+        "report_text": "PA and lateral chest radiograph. There is a focal area of increased opacity in the right lower lobe. No pleural effusion or pneumothorax. Cardiac silhouette normal in size. Impression: focal right lower lobe opacity, clinical correlation recommended.",
+        "indication": "Persistent productive cough and low-grade fever for 10 days"
+      },
+      "normalised": {
+        "label": "focal_opacity",
+        "description": "Focal increased opacity, right lower lobe",
+        "location": "RLL",
+        "acuity": "acute",
+        "severity_score": 2,
+        "resolved": true
+      }
+    },
+    {
+      "id": "MR-003",
+      "occurred_on": "2025-03-15",
+      "category": "lab",
+      "title": "Inflammatory markers elevated",
+      "is_chronic": false,
+      "is_active": false,
+      "clinical_dimension": "symptom_burden",
+      "detail": { "crp_mg_l": 84, "wbc_x10e9_l": 13.8, "reference_crp": "<5" }
+    },
+    {
+      "id": "MR-004",
+      "occurred_on": "2025-06-20",
+      "category": "imaging_report",
+      "title": "Follow-up chest X-ray — prior opacity resolved",
+      "is_chronic": false,
+      "is_active": false,
+      "clinical_dimension": "pulmonary_imaging",
+      "detail": {
+        "modality": "chest_xray",
+        "report_text": "Follow-up PA chest radiograph. The previously noted right lower lobe opacity has resolved. A subtle residual fibrotic streak is present at the right base. No new consolidation. Impression: interval resolution of prior right lower lobe opacity with residual fibrotic change.",
+        "prior_study_ref": "MR-002"
+      },
+      "normalised": {
+        "label": "fibrosis",
+        "description": "Residual fibrotic streak, right base",
+        "location": "RLL",
+        "acuity": "chronic",
+        "severity_score": 1,
+        "resolved": false
+      }
+    },
+    {
+      "id": "MR-005",
+      "occurred_on": "2026-02-10",
+      "category": "encounter",
+      "title": "Routine hypertension review — controlled",
+      "is_chronic": false,
+      "is_active": false,
+      "clinical_dimension": "cardiac_rate",
+      "detail": {
+        "bp": "128/82",
+        "systolic": 128,
+        "diastolic": 82,
+        "status": "controlled",
+        "adherence": "good",
+        "plan": "continue current therapy"
+      }
+    }
+  ],
+
+  "medications": [
+    {
+      "id": "MED-001",
+      "name": "Amlodipine",
+      "dose": "5 mg",
+      "frequency": "once daily",
+      "start_date": "2024-03-01",
+      "end_date": null,
+      "is_active": true
+    }
+  ],
+
+  "allergies": [
+    {
+      "id": "ALG-001",
+      "allergen": "Penicillin",
+      "reaction": "Maculopapular rash",
+      "severity": "moderate"
+    }
+  ],
+
+  "lifestyle": [
+    {
+      "key": "former_smoker",
+      "factor": "Former smoker",
+      "detail": "~8 pack-years, quit 2018",
+      "current_smoker": false,
+      "pack_years": 8,
+      "quit_year": 2018
+    },
+    {
+      "key": "bmi_overweight",
+      "factor": "BMI",
+      "detail": "27.4 (overweight)",
+      "bmi": 27.4
+    }
+  ],
+
+  "current_symptoms": {
+    "reported_at": "2026-09-08T09:15:00Z",
+    "free_text": "Fever and a dry cough that started two days ago. Breathing feels harder each day, especially when walking to the bathroom. Chest feels tight.",
+    "symptoms": [
+      { "name": "fever", "value": 38.7, "unit": "C", "severity": "moderate", "onset_days": 2, "is_progressive": true },
+      { "name": "cough", "severity": "moderate", "onset_days": 2, "is_progressive": true, "notes": "dry, non-productive" },
+      { "name": "dyspnea", "severity": "severe", "onset_days": 2, "is_progressive": true, "notes": "worse on minimal exertion" },
+      { "name": "chest_tightness", "severity": "mild", "onset_days": 1, "is_progressive": false },
+      { "name": "fatigue", "severity": "moderate", "onset_days": 2, "is_progressive": true }
+    ]
+  },
+
+  "current_imaging": {
+    "id": "IMG-CURRENT-001",
+    "study_date": "2026-09-08",
+    "modality": "chest_xray",
+    "source_mode": "mock_preset",
+    "provenance": "Preset structured finding for synthetic patient PT-DEMO-001 (MVP demo scenario). No imaging model was executed.",
+    "report_text": null,
+    "findings": [
+      "Patchy increased opacities in both lower zones, right greater than left",
+      "No pleural effusion or pneumothorax",
+      "Cardiac silhouette within normal limits",
+      "Residual fibrotic streak at the right base, unchanged since 2025-06-20",
+      "No bony abnormality"
+    ],
+    "abnormalities": [
+      {
+        "label": "multifocal_opacities",
+        "description": "Patchy bilateral lower-zone opacities",
+        "location": "bilateral lower zones",
+        "acuity": "acute",
+        "severity_score": 3,
+        "confidence": 0.87
+      },
+      {
+        "label": "fibrosis",
+        "description": "Residual fibrotic streak, right base",
+        "location": "RLL",
+        "acuity": "chronic",
+        "severity_score": 1,
+        "confidence": 0.74
+      }
+    ]
+  }
+}

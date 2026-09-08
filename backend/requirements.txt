@@ -1,0 +1,35 @@
+# Backend dependencies — verified working on Python 3.11.16 / macOS arm64.
+# Install with:  make setup
+# NOTE: torch is intentionally absent. The Imaging Agent uses report-text
+# parsing (source_mode="uploaded_report"), not a CNN, so no deep-learning
+# runtime is required anywhere in this project.
+
+# --- Web layer ---
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+python-multipart==0.0.32        # multipart/form-data for CXR + CSV upload
+httpx==0.28.1                   # LLM provider HTTP client + TestClient
+
+# --- Data contracts ---
+pydantic==2.13.5
+pydantic-settings==2.15.0
+
+# --- Persistence ---
+SQLAlchemy==2.0.52
+
+# --- Agent orchestration ---
+# StateGraph only. We deliberately do NOT use LangChain's LLM/Chain
+# abstractions: nodes are plain Python functions over our own Pydantic
+# contracts, so the LLMProvider abstraction stays vendor-neutral.
+langgraph==1.2.11
+langchain-core==1.6.2
+
+# --- Numerics (trend / anomaly analysis) ---
+numpy==2.4.6
+
+# --- Dev / test ---
+pytest==9.1.1
+
+# pandas is available in the conda env but is NOT a runtime dependency;
+# numpy + stdlib csv cover all Phase 0-9 needs. Add it back in Phase 10
+# if the evaluation scripts want dataframe output.

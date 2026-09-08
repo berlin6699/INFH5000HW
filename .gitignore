@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Environment / secrets
+.env
+.env.local
+*.key
+
+# Database & runtime artifacts
+*.db
+*.sqlite
+*.sqlite3
+backend/data/uploads/
+
+# Generated types (regenerate with `make types`)
+frontend/src/types/generated.ts
+frontend/src/types/schema.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* Design tokens. Declaring risk colours here (rather than hardcoding hex in
+   components) keeps the LOW/MEDIUM/HIGH palette consistent across the
+   assessment card, timeline markers and chart threshold bands. */
+@theme {
+  --color-risk-low: #16a34a;
+  --color-risk-medium: #d97706;
+  --color-risk-high: #dc2626;
+
+  --color-clinical-bg: #f8fafc;
+  --color-clinical-surface: #ffffff;
+  --color-clinical-border: #e2e8f0;
+  --color-clinical-muted: #64748b;
+  --color-clinical-ink: #0f172a;
+
+  /* Vital-sign series colours, shared by MonitoringCharts and its legend. */
+  --color-vital-spo2: #2563eb;
+  --color-vital-hr: #dc2626;
+  --color-vital-temp: #d97706;
+  --color-vital-rr: #7c3aed;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-clinical-bg);
+  color: var(--color-clinical-ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Vital-sign tables are read digit by digit; tabular numerals stop columns
+   from jittering as values change. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
