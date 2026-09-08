@@ -96,13 +96,31 @@ class ScoreBand:
     """One band of an ordinal early-warning score: `low <= value < high` earns `score`.
 
     Bounds are **low-inclusive, high-exclusive** and `None` means unbounded, so
-    a metric's bands tile the real line with no gaps and no overlaps.
+    a metric's bands tile the real line with no gaps and no overlaps. Every bound
+    is a published bound, because a bound is what a fired rule renders as the
+    cutoff the reading crossed, and a cutoff is only auditable if a clinician can
+    find it on the source chart.
 
-    NEWS2 is published against integer readings ("SpO2 92-93 scores 2"), which
-    leaves fractional values undefined. Shifting each published boundary to the
-    top of its band reproduces the integer behaviour exactly and resolves
-    fractions toward the more abnormal score — 91.5% is treated like 91%, not
-    like 92%. Under-reading a falling saturation is the worse error here.
+    NEWS2 is published against readings of one decimal place or coarser ("SpO2
+    92-93 scores 2"), so a finer observation is outside the instrument's
+    resolution and some policy has to be chosen. The one implemented here is
+    uniform: a reading belongs to the band whose published lower bound it
+    reaches, which extends each band up to the next band's published bound.
+
+    That policy is **not** direction-neutral, and this is a known limitation
+    rather than a safety property:
+
+    * Where *falling* is adverse it favours the more abnormal band. SpO2 91.5%
+      scores 3, like 91%, not 2, like 92% — under-reading a falling saturation
+      is the worse error, and it is the case the demo turns on.
+    * Where *rising* is adverse the same rule favours the less abnormal one:
+      heart rate 130.5 scores 2, not 3, and temperature 38.05 C scores 0, not 1.
+
+    Fixing the second case means inventing half-step bounds nobody published, and
+    then every cutoff rendered next to a fired rule would stop being checkable
+    against the NEWS2 chart. Recorded here for clinical review instead. In
+    practice the demo fixture reports SpO2, heart rate and respiratory rate as
+    integers and temperature to 0.1 C, so no reading lands between bounds.
     """
 
     score: int

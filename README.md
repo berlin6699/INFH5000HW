@@ -144,7 +144,7 @@ defined twice.
 | 0 | Scaffold & toolchain | ✅ |
 | 1 | Data contracts, DB schema, synthetic patient, type sync | ✅ |
 | 2 | History Agent + timeline | ✅ |
-| 3 | Monitoring Agent + trend maths | — |
+| 3 | Monitoring Agent + trend maths | ✅ |
 | 4 | Triage Agent + warning signs | — |
 | 5 | Knowledge Agent + BM25 RAG | — |
 | 6 | Coordinator + longitudinal reasoning | — |
@@ -153,7 +153,7 @@ defined twice.
 | 9 | End-to-end demo | — |
 | 10 | Evaluation & ablations | — |
 
-Test suite: **214 passing** (`make test`).
+Test suite: **620 passing** (`make test`).
 
 ### What Phase 2 delivered
 
@@ -182,3 +182,62 @@ sits unused and start firing the stale-record rules for a reason that has nothin
 to do with the patient. It also means records dated *after* an earlier anchor are
 excluded — otherwise a Phase 10 replay would reason from data that had not yet
 happened.
+
+### What Phase 3 delivered
+
+The Monitoring Agent's brief is *current value + temporal trend*, and the failure
+mode it exists to avoid is concluding from a single time point. Three independent
+components are therefore computed for every vital:
+
+- **The published instrument.** A NEWS2 parameter score for the current reading
+  (Royal College of Physicians, 2017). This is the only component with external
+  validation behind it, and the cutoff it crossed is rendered next to the rule
+  that fired.
+- **An adverse temporal trend.** An ordinary least-squares slope per day, the
+  length of the monotonic run ending at the latest sample, and the goodness of
+  fit. Below three samples no slope is reported at all, because a line through
+  two points has r² = 1.0 by construction and reads on a chart as a confident
+  trend.
+- **Deviation from the patient's own baseline** — the mean of the earliest two
+  observations in the window, never including the current value, since a reading
+  that is part of its own baseline cannot show deterioration. This is what makes
+  a still-normal 95% alarming in a patient whose baseline was 98%.
+
+`rapid_deterioration` needs all four of an adverse slope, a sustained run, enough
+samples and an adequate fit. Each alone has a failure mode, and the reverse cases
+are tested as hard as the demo: an unchanging 91% fires the absolute-threshold
+rule and is *not* deterioration.
+
+Three things are stated in the output rather than left to the reader:
+
+**The NEWS2 total is partial.** Four of its seven parameters are recorded — blood
+pressure and level of consciousness are not in `VitalSample`. The caveat is
+attached by a schema validator, so a caller cannot omit it, and the rules escalate
+on the "score of 3 in any one parameter" trigger, which stays valid under partial
+scoring, rather than on the total, which does not.
+
+**No monitoring rule assigns risk points.** `contribution` is 0.0 throughout,
+because the Coordinator's scorer owns the mapping onto the monitoring band and a
+second set of numbers here would be a competing answer to "how much did this
+add?". What the rules carry is evidence.
+
+**An empty window is a data gap, not an error.** A patient nobody measured gets
+`data_quality: insufficient` and seven named gaps. Reporting normal vitals for
+them would be the dangerous version of that outcome.
+
+`anomaly_score` renormalises its component weights over whichever components
+apply, then scales wearable-derived signals back down, so percent, bpm, degrees
+and steps can be ranked against each other to pick `worst_metric`. For the demo
+patient: SpO₂ 98→91 and HR 72→103 over five days, partial NEWS2 total **7**,
+escalation trigger set, rapid deterioration in all six metrics, worst metric
+**SpO₂** at 0.9676, `data_quality: complete`. Replayed at 09-06 — three days in —
+the same patient shows no rapid deterioration and a different worst metric, which
+is the point of the anchor.
+
+**Known limitation, recorded for clinical review.** The band table is published
+against readings of one decimal place or coarser, so a finer observation needs a
+policy. The implemented one is uniform, and it is not direction-neutral: SpO₂
+91.5% scores 3 like 91%, but heart rate 130.5 scores 2 rather than 3. Making the
+second case safer means inventing half-step bounds nobody published, which would
+stop every rendered cutoff being checkable against the source chart. Nothing here
+has been validated against patient outcomes.
