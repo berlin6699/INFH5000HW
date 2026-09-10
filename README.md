@@ -46,9 +46,9 @@ Patient ├── Monitoring Agent ─┤
            FinalAssessment
 ```
 
-Orchestration is a LangGraph `StateGraph`. Nodes are plain Python functions over
-Pydantic contracts — LangChain's LLM abstractions are deliberately not used, so
-the `LLMProvider` layer stays vendor-neutral.
+The first offline MVP uses a deliberately small sequential Python workflow over
+Pydantic contracts. LangGraph and external LLM providers are deferred until the
+single-port mock demo is stable.
 
 ### Deterministic core, optional LLM
 
@@ -65,6 +65,23 @@ structured field. Consequences:
 ---
 
 ## Quick start
+
+### Windows — first offline MVP
+
+Double-click `run.bat`, or run:
+
+```powershell
+.\start.ps1
+```
+
+The first launch installs local dependencies and builds the dashboard. Open
+**http://127.0.0.1:8000**. Both the page and API are served from this one port.
+This version is completely offline: the Triage, Imaging, Knowledge and
+Coordinator agents use clearly labelled deterministic mock logic, while the
+existing History and Monitoring agents run their tested rule engines. No model
+weights are downloaded and no external API is called.
+
+### Existing Makefile workflow
 
 Requires **conda** (the system Python on macOS is 3.9.6, too old for this stack).
 
@@ -148,12 +165,12 @@ defined twice.
 | 1 | Data contracts, DB schema, synthetic patient, type sync | ✅ |
 | 2 | History Agent + timeline | ✅ |
 | 3 | Monitoring Agent + trend maths | ✅ |
-| 4 | Triage Agent + warning signs | — |
-| 5 | Knowledge Agent + BM25 RAG | — |
-| 6 | Coordinator + longitudinal reasoning | — |
-| 7 | Web dashboard (6 panels, SSE progress) | — |
-| 8 | Imaging Agent (report-text parsing) | — |
-| 9 | End-to-end demo | — |
+| 4 | Triage Agent + warning signs | Mock MVP ✓ |
+| 5 | Knowledge Agent + BM25 RAG | Mock placeholder ✓ |
+| 6 | Coordinator + longitudinal reasoning | Mock MVP ✓ |
+| 7 | Web dashboard | Single-port MVP ✓ |
+| 8 | Imaging Agent | Upload preview + labelled preset ✓ |
+| 9 | End-to-end demo | Offline workflow ✓ |
 | 10 | Evaluation & ablations | — |
 
 Test suite: **620 passing** (`make test`).

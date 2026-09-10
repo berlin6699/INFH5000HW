@@ -1,0 +1,79 @@
+:root {
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+}
+
+.topbar {
+  min-height: 76px;
+  height: auto;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 24px;
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.group-credit {
+  text-align: center;
+}
+
+.group-credit strong,
+.group-credit span {
+  display: block;
+}
+
+.group-credit strong {
+  color: #fff;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.group-credit span {
+  margin-top: 5px;
+  color: #a7c7c0;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.topbar-status {
+  justify-content: flex-end;
+}
+
+footer strong {
+  color: #496761;
+  font-size: 10px;
+}
+
+@media (max-width: 920px) {
+  .topbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .group-credit {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+@media (max-width: 680px) {
+  .topbar {
+    display: grid;
+    padding: 14px 18px;
+  }
+
+  .topbar-status {
+    font-size: 9px;
+  }
+
+  .group-credit strong {
+    font-size: 11px;
+  }
+
+  .group-credit span {
+    white-space: normal;
+    line-height: 1.7;
+  }
+}

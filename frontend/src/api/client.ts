@@ -68,3 +68,87 @@ export interface SystemInfo {
 
 export const fetchSystemInfo = () => get<SystemInfo>('/api/system/info')
 export const fetchHealth = () => get<{ status: string }>('/api/health')
+
+export interface Symptom {
+  name: string
+  label?: string | null
+  present?: boolean
+  value?: number | null
+  unit?: string | null
+  severity: 'mild' | 'moderate' | 'severe'
+  onset_days?: number | null
+  is_progressive?: boolean
+  notes?: string | null
+}
+
+export interface MonitoringSample {
+  recorded_at: string
+  spo2: number | null
+  heart_rate: number | null
+  temperature_c: number | null
+  respiratory_rate: number | null
+  sleep_hours: number | null
+  activity_steps: number | null
+}
+
+export interface DemoData {
+  patient: {
+    patient_id: string
+    full_name: string
+    age: number
+    sex: string
+    chronic_conditions: Array<{ name: string }>
+    active_medications: Array<{ name: string; dose?: string | null; frequency?: string | null }>
+    allergies: Array<{ allergen: string; reaction?: string | null; severity: string }>
+    risk_factors: Array<{ factor: string; category: string }>
+    timeline: Array<{ occurred_on: string; label: string; detail?: string | null; is_current: boolean }>
+  }
+  symptoms: { reported_at: string; free_text: string; symptoms: Symptom[] }
+  monitoring: MonitoringSample[]
+  imaging: {
+    source_mode: string
+    badge?: string | null
+    findings: string[]
+    abnormalities: Array<{ label: string; description?: string | null; location?: string | null; confidence: number }>
+    summary: string
+  } | null
+}
+
+export interface AnalysisResult {
+  run_id: string
+  duration_ms: number
+  status: string
+  assessment: {
+    risk_level: 'LOW' | 'MEDIUM' | 'HIGH'
+    risk_score: number
+    recommended_department: string
+    urgency: string
+    care_advice: string
+    key_findings: string[]
+    longitudinal_summary: string
+    reasoning_summary: string
+    historical_changes: Array<{ dimension: string; change_type: string; significance: string; prior_state?: string | null; current_state: string; basis: string }>
+    score_breakdown: Array<{ rule_id: string; category: string; description: string; contribution: number; evidence: string }>
+    evidence: Array<{ chunk_id: string; text: string; source: string; relevance_score: number; retrieved_for: string }>
+    limitations: string[]
+    disclaimer: string
+  }
+  history: DemoData['patient']
+  monitoring: { current_abnormalities: string[]; rapid_deterioration: boolean; summary: string }
+  imaging: NonNullable<DemoData['imaging']>
+  triage: { summary: string; warning_signs: Array<{ sign: string; description: string }> }
+  knowledge: { summary: string }
+  traces: Array<{ agent_name: string; status: string; duration_ms: number; notes: string[] }>
+}
+
+export const fetchDemo = () => get<DemoData>('/api/demo')
+export const runAnalysis = (patientId: string, symptoms: Symptom[], freeText: string) =>
+  post<AnalysisResult>('/api/analysis/run', {
+    patient_id: patientId,
+    symptoms,
+    free_text: freeText,
+    use_llm: false,
+    rag_enabled: false,
+    longitudinal_enabled: true,
+    imaging_mode: 'mock_preset',
+  })

@@ -12,4 +12,5 @@
  * drift apart.
  */
 
-export * from './generated'
+// The first offline MVP keeps its small UI contract next to the API client.
+export {}
