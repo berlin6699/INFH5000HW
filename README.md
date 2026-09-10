@@ -1,263 +1,105 @@
-# Multimodal Multi-Agent Healthcare Assistant
+# 多模态多智能体医疗辅助系统
 
-**Intelligent Triage & Continuous Health Monitoring**
+面向智能分诊与连续健康监测的课程项目原型。
 
-> ### ⚠️ Educational Research Prototype
-> This project is a course prototype for **medical decision-support research**.
-> It is **not** a medical device, it does **not** produce diagnoses, and its
-> output **never** replaces a qualified clinician. All patient data is
-> **synthetic**. No real protected health information is stored or processed.
+系统综合患者病史、当前症状、胸部 X 光片、连续生命体征和模拟医学知识，生成风险等级、推荐就诊科室及可解释的判断依据。
 
-The brief this was built against, and what is and is not finished, is in
-[REQUIREMENTS.md](REQUIREMENTS.md).
+> **重要说明**
+> 本项目仅用于教学和研究演示，不是医疗器械，不提供正式医学诊断，也不能替代专业医务人员。
 
-A multi-agent system that reasons over **historical patient state + current
-symptoms + medical imaging + continuous physiological monitoring + retrieved
-clinical knowledge**, and produces an explainable, *longitudinal* assessment —
-not just "what is the patient's state now", but **"what changed compared to
-this patient's own history"**.
+## 当前功能
 
----
+- 患者基本信息及既往病史展示；
+- 患者医疗时间线；
+- 当前症状选择和文字输入；
+- SpO₂、心率等五天监测趋势；
+- Chest X-ray 上传预览；
+- History、Triage、Imaging、Monitoring、Knowledge、Coordinator 六个智能体；
+- 历史状态与当前状态的纵向比较；
+- 风险等级、推荐科室和主要判断依据；
+- 单端口本地网页。
 
-## Core idea
+## 当前版本说明
 
-Most medical AI demos are `symptoms → LLM → answer`. This system's contribution
-is fusing five evidence streams in one coordinator and computing the *delta*
-against the patient's own baseline:
+第一版完全离线运行：
 
+- 不调用外部模型 API；
+- 不下载医学影像模型权重；
+- 影像结果来自预设 Mock 数据；
+- Knowledge Agent 使用本地模拟知识；
+- 页面会明确显示“模拟输出”，不会冒充真实模型结果；
+- 当前患者和监测数据均为合成数据。
+
+上传的胸片目前只用于页面预览，不会进行真实图像识别。
+
+## Windows 启动方法
+
+需要提前安装：
+
+- Python 3.11；
+- Node.js。
+
+最简单的方法是双击：
+
+```text
+run.bat
 ```
-        ┌── History Agent ────┐
-        ├── Triage Agent ─────┤   parallel fan-out
-Patient ├── Monitoring Agent ─┤
-        └── Imaging Agent ────┘
-                  │
-                  ▼
-          Knowledge Agent (RAG)      ← queries are constructed FROM the
-                  │                     structured findings above
-                  ▼
-          Coordinator Agent
-            ├─ LongitudinalComparator   baseline vs. current, per dimension
-            ├─ RiskScorer               auditable weighted rules + overrides
-            ├─ DepartmentRouter
-            ├─ EvidenceAssembler
-            └─ SummaryWriter            prose only, never structured fields
-                  │
-                  ▼
-           FinalAssessment
-```
 
-The first offline MVP uses a deliberately small sequential Python workflow over
-Pydantic contracts. LangGraph and external LLM providers are deferred until the
-single-port mock demo is stable.
-
-### Deterministic core, optional LLM
-
-**Every structured field** (`risk_level`, `recommended_department`,
-`historical_changes`, `score_breakdown`) is computed by an explicit rule engine.
-An LLM, when configured, may only rewrite prose and **cannot** alter a
-structured field. Consequences:
-
-- The full demo runs with **no API key and no network access** (`MEDAI_LLM_PROVIDER=null`).
-- Risk scoring is **reproducible and auditable** — every fired rule carries its
-  own weight contribution and is rendered in the UI.
-- Phase 10 gets a free ablation study (± LLM, ± RAG, ± longitudinal module).
-
----
-
-## Quick start
-
-### Windows — first offline MVP
-
-Double-click `run.bat`, or run:
+也可以在 PowerShell 中运行：
 
 ```powershell
 .\start.ps1
 ```
 
-The first launch installs local dependencies and builds the dashboard. Open
-**http://127.0.0.1:8000**. Both the page and API are served from this one port.
-This version is completely offline: the Triage, Imaging, Knowledge and
-Coordinator agents use clearly labelled deterministic mock logic, while the
-existing History and Monitoring agents run their tested rule engines. No model
-weights are downloaded and no external API is called.
+首次启动会自动创建 Python 环境、安装依赖并构建前端。启动完成后访问：
 
-### Existing Makefile workflow
-
-Requires **conda** (the system Python on macOS is 3.9.6, too old for this stack).
-
-```bash
-make setup     # create conda env "medai" (Python 3.11), install all deps, write .env
-make dev       # backend :8000 + frontend :5173 (Ctrl-C stops both)
+```text
+http://127.0.0.1:8000
 ```
 
-Then open **http://localhost:5173**.
+按 `Ctrl+C` 可以停止服务。
 
-| Command | Purpose |
-|---|---|
-| `make setup` | conda env + backend/frontend deps + `.env` |
-| `make dev` | run backend and frontend together |
-| `make backend` / `make frontend` | run either alone |
-| `make seed` | recreate SQLite and load the synthetic demo patient |
-| `make test` | pytest |
-| `make types` | regenerate TS types from the pydantic schemas |
-| `make check` | print resolved toolchain versions |
-| `make demo` | one command: reset → seed → run analysis (completed in Phase 9) |
-| `make clean` / `make distclean` | remove artifacts / also drop the DB |
+## 使用流程
 
-Optional: set `MEDAI_LLM_PROVIDER=openai` or `deepseek` plus its key in `.env` to
-enable prose synthesis. See `.env.example` — every value has an offline default.
+1. 打开网页；
+2. 查看合成患者的病史和监测数据；
+3. 选择或取消当前症状；
+4. 根据需要上传胸片进行预览；
+5. 点击“运行多智能体分析”；
+6. 查看风险等级、推荐科室、趋势变化和智能体推理依据。
 
----
+## 技术栈
 
-## Scope
+- 前端：React、TypeScript、Vite、Recharts；
+- 后端：Python、FastAPI；
+- 数据库：SQLite；
+- 数据结构：Pydantic、SQLAlchemy；
+- 当前模型模式：Deterministic Mock。
 
-**In scope (MVP):** respiratory presentations (fever, cough, chest pain,
-dyspnoea, SpO₂ drop, tachycardia) and **chest X-ray** only.
+## 主要目录
 
-**Explicitly out of scope:** hospital HIS integration, whole-disease-coverage,
-CT/MRI, medication prescribing or dose adjustment, production deployment, real
-wearable hardware, and anything that replaces clinical judgement.
-
-## Imaging output provenance
-
-`ImagingFinding.source_mode` is a **required** field:
-
-| Mode | Meaning |
-|---|---|
-| `mock_preset` | Predefined demo findings. **Always** badged `DEMO / MOCK OUTPUT` in the UI. |
-| `uploaded_report` | Findings parsed from a radiology report supplied by the user. |
-
-No real CXR convolutional model is integrated — that would require torch plus
-~1 GB of weights. Badges are driven by `/api/system/info`, so they cannot drift
-out of sync with what the backend actually did.
-
----
-
-## Layout
-
-```
-backend/app/
-  schemas/     Pydantic contracts — the single source of truth for all agent I/O
-  db/          SQLAlchemy models, SQLite-specific column types, synthetic-data seed
-  agents/      six agents + the LangGraph workflow
-  reasoning/   everything deterministic: clinical threshold tables, the named rule
-               registry, time-series trend maths, longitudinal comparator, risk
-               scorer, department router
-  llm/         LLMProvider abstraction (null | openai | deepseek)
-  rag/         Retriever abstraction (pure-Python BM25) + guideline corpus
-  safety.py    disclaimer + lexical guard against diagnostic wording
-  tools/       export_types.py — regenerates the frontend contract from pydantic
-frontend/src/
-  components/  six dashboard panels + persistent disclaimer banner
-  types/       generated.ts (auto-generated — do not edit)
+```text
+backend/       FastAPI、数据模型、智能体和测试
+frontend/      React Dashboard
+start.ps1      Windows 一键启动脚本
+run.bat        Windows 双击启动入口
 ```
 
-One package for all deterministic computation rather than splitting "rules" from
-"maths": the trend maths and the thresholds are read by the same rule engines,
-and two packages with a fuzzy boundary between them is how a threshold ends up
-defined twice.
+## 测试
 
-## Development phases
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m pytest -q
+```
 
-| # | Phase | Status |
-|---|---|---|
-| 0 | Scaffold & toolchain | ✅ |
-| 1 | Data contracts, DB schema, synthetic patient, type sync | ✅ |
-| 2 | History Agent + timeline | ✅ |
-| 3 | Monitoring Agent + trend maths | ✅ |
-| 4 | Triage Agent + warning signs | Mock MVP ✓ |
-| 5 | Knowledge Agent + BM25 RAG | Mock placeholder ✓ |
-| 6 | Coordinator + longitudinal reasoning | Mock MVP ✓ |
-| 7 | Web dashboard | Single-port MVP ✓ |
-| 8 | Imaging Agent | Upload preview + labelled preset ✓ |
-| 9 | End-to-end demo | Offline workflow ✓ |
-| 10 | Evaluation & ablations | — |
+## 项目成员
 
-Test suite: **620 passing** (`make test`).
+**Group 25 · INFH5000 Project**
 
-### What Phase 2 delivered
+按姓名拼音排序：
 
-The History Agent turns the raw record into a `PatientProfile` plus a
-`TimelineEvent` list, and derives three things rather than asserting them:
-
-- **`risk_factors`** — each one naming the rule that produced it (`R-HIS-AGE-02`)
-  and carrying the threshold and citation behind its weight.
-- **`history_multiplier`** — the product of those weights, clamped to
-  `[1.0, 1.4]` so a long comorbidity list cannot dominate the score. The demo
-  patient derives **×1.3698**.
-- **`data_gaps`** — what the record does *not* contain. An assessment that
-  silently ignored an absent prior study would be indistinguishable from one
-  that had a prior study and found it unchanged, and those mean very different
-  things clinically.
-
-Two invariants worth knowing before reading the code:
-
-**No natural-language inference.** Prior findings come from a coded `normalised`
-column on the record that produced them. The agent never parses radiology prose;
-when Phase 8 parses an uploaded report, its output lands in that same column.
-
-**No wall clock.** `reference_date` is derived from the patient's own latest
-observation. `datetime.now()` would age the demo patient every year the project
-sits unused and start firing the stale-record rules for a reason that has nothing
-to do with the patient. It also means records dated *after* an earlier anchor are
-excluded — otherwise a Phase 10 replay would reason from data that had not yet
-happened.
-
-### What Phase 3 delivered
-
-The Monitoring Agent's brief is *current value + temporal trend*, and the failure
-mode it exists to avoid is concluding from a single time point. Three independent
-components are therefore computed for every vital:
-
-- **The published instrument.** A NEWS2 parameter score for the current reading
-  (Royal College of Physicians, 2017). This is the only component with external
-  validation behind it, and the cutoff it crossed is rendered next to the rule
-  that fired.
-- **An adverse temporal trend.** An ordinary least-squares slope per day, the
-  length of the monotonic run ending at the latest sample, and the goodness of
-  fit. Below three samples no slope is reported at all, because a line through
-  two points has r² = 1.0 by construction and reads on a chart as a confident
-  trend.
-- **Deviation from the patient's own baseline** — the mean of the earliest two
-  observations in the window, never including the current value, since a reading
-  that is part of its own baseline cannot show deterioration. This is what makes
-  a still-normal 95% alarming in a patient whose baseline was 98%.
-
-`rapid_deterioration` needs all four of an adverse slope, a sustained run, enough
-samples and an adequate fit. Each alone has a failure mode, and the reverse cases
-are tested as hard as the demo: an unchanging 91% fires the absolute-threshold
-rule and is *not* deterioration.
-
-Three things are stated in the output rather than left to the reader:
-
-**The NEWS2 total is partial.** Four of its seven parameters are recorded — blood
-pressure and level of consciousness are not in `VitalSample`. The caveat is
-attached by a schema validator, so a caller cannot omit it, and the rules escalate
-on the "score of 3 in any one parameter" trigger, which stays valid under partial
-scoring, rather than on the total, which does not.
-
-**No monitoring rule assigns risk points.** `contribution` is 0.0 throughout,
-because the Coordinator's scorer owns the mapping onto the monitoring band and a
-second set of numbers here would be a competing answer to "how much did this
-add?". What the rules carry is evidence.
-
-**An empty window is a data gap, not an error.** A patient nobody measured gets
-`data_quality: insufficient` and seven named gaps. Reporting normal vitals for
-them would be the dangerous version of that outcome.
-
-`anomaly_score` renormalises its component weights over whichever components
-apply, then scales wearable-derived signals back down, so percent, bpm, degrees
-and steps can be ranked against each other to pick `worst_metric`. For the demo
-patient: SpO₂ 98→91 and HR 72→103 over five days, partial NEWS2 total **7**,
-escalation trigger set, rapid deterioration in all six metrics, worst metric
-**SpO₂** at 0.9676, `data_quality: complete`. Replayed at 09-06 — three days in —
-the same patient shows no rapid deterioration and a different worst metric, which
-is the point of the anchor.
-
-**Known limitation, recorded for clinical review.** The band table is published
-against readings of one decimal place or coarser, so a finer observation needs a
-policy. The implemented one is uniform, and it is not direction-neutral: SpO₂
-91.5% scores 3 like 91%, but heart rate 130.5 scores 2 rather than 3. Making the
-second case safer means inventing half-step bounds nobody published, which would
-stop every rendered cutoff being checkable against the source chart. Nothing here
-has been validated against patient outcomes.
+- 郝一帆
+- 胡可
+- 蓝嘉雪
+- 孙博林
+- 杨哲
