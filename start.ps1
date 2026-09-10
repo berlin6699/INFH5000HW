@@ -17,6 +17,21 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     & $pythonPath -m pip install --disable-pip-version-check -r "backend\requirements.txt"
 }
 
+& $pythonPath -c "import torch, torchvision, torchxrayvision" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Installing the local Chest X-ray model (CPU)..." -ForegroundColor Cyan
+    & $pythonPath -m pip install --disable-pip-version-check torch==2.5.1+cpu torchvision==0.20.1+cpu --index-url https://download.pytorch.org/whl/cpu
+    & $pythonPath -m pip install --disable-pip-version-check -r "backend\requirements-model.txt"
+}
+
+if (-not (Test-Path -LiteralPath ".env")) {
+    Copy-Item -LiteralPath ".env.example" -Destination ".env"
+    Write-Host "Created .env. Add your API key there when needed." -ForegroundColor Yellow
+}
+
+Push-Location "backend"
+try { & $pythonPath -m app.tools.download_imaging_model } finally { Pop-Location }
+
 if (-not (Test-Path -LiteralPath "frontend\node_modules")) {
     Write-Host "Installing the web interface..." -ForegroundColor Cyan
     Push-Location "frontend"

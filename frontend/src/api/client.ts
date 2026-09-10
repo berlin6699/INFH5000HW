@@ -53,10 +53,11 @@ export interface SystemInfo {
     note: string
   }
   imaging: {
-    mode: 'mock_preset' | 'uploaded_report'
+    mode: 'mock_preset' | 'uploaded_report' | 'real_model'
     is_real_model: boolean
     badge: string | null
     supported_modalities: string[]
+    local_model?: ImagingModelStatus
   }
   rag: { retriever: 'bm25' | 'embedding'; top_k: number }
   safety: {
@@ -105,13 +106,27 @@ export interface DemoData {
   }
   symptoms: { reported_at: string; free_text: string; symptoms: Symptom[] }
   monitoring: MonitoringSample[]
-  imaging: {
+  imaging: ImagingResult | null
+}
+
+export interface ImagingResult {
     source_mode: string
     badge?: string | null
+    provenance: string
     findings: string[]
     abnormalities: Array<{ label: string; description?: string | null; location?: string | null; confidence: number }>
+    confidence: Record<string, number>
     summary: string
-  } | null
+}
+
+export interface ImagingModelStatus {
+  available: boolean
+  dependencies_installed: boolean
+  weights_downloaded: boolean
+  weights_bytes: number
+  model: string
+  device: string
+  loaded: boolean
 }
 
 export interface AnalysisResult {
@@ -141,7 +156,28 @@ export interface AnalysisResult {
   traces: Array<{ agent_name: string; status: string; duration_ms: number; notes: string[] }>
 }
 
+export interface AnalysisProgressEvent {
+  type: 'progress'
+  agent: string
+  status: 'running' | 'completed'
+  message: string
+  completed: number
+  total: number
+}
+
 export const fetchDemo = () => get<DemoData>('/api/demo')
+export const analyseImage = async (patientId: string, file: File) => {
+  const body = new FormData()
+  body.append('patient_id', patientId)
+  body.append('file', file)
+  const response = await fetch('/api/imaging/analyze', { method: 'POST', body })
+  if (!response.ok) {
+    let detail: unknown
+    try { detail = await response.json() } catch { detail = await response.text().catch(() => undefined) }
+    throw new ApiError(response.status, '胸片分析失败', detail)
+  }
+  return response.json() as Promise<ImagingResult>
+}
 export const runAnalysis = (patientId: string, symptoms: Symptom[], freeText: string) =>
   post<AnalysisResult>('/api/analysis/run', {
     patient_id: patientId,
@@ -150,5 +186,52 @@ export const runAnalysis = (patientId: string, symptoms: Symptom[], freeText: st
     use_llm: false,
     rag_enabled: false,
     longitudinal_enabled: true,
-    imaging_mode: 'mock_preset',
   })
+
+export async function runAnalysisStream(
+  patientId: string,
+  symptoms: Symptom[],
+  freeText: string,
+  onProgress: (event: AnalysisProgressEvent) => void,
+): Promise<AnalysisResult> {
+  const response = await fetch('/api/analysis/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      patient_id: patientId,
+      symptoms,
+      free_text: freeText,
+      use_llm: false,
+      rag_enabled: false,
+      longitudinal_enabled: true,
+    }),
+  })
+  if (!response.ok || !response.body) {
+    throw new ApiError(response.status, '无法启动联合分析', await response.text().catch(() => undefined))
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let result: AnalysisResult | null = null
+
+  const handleLine = (line: string) => {
+    if (!line.trim()) return
+    const event = JSON.parse(line) as AnalysisProgressEvent | { type: 'result'; data: AnalysisResult } | { type: 'error'; message: string }
+    if (event.type === 'progress') onProgress(event)
+    else if (event.type === 'result') result = event.data
+    else throw new Error(event.message)
+  }
+
+  while (true) {
+    const { value, done } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    lines.forEach(handleLine)
+    if (done) break
+  }
+  handleLine(buffer)
+  if (!result) throw new Error('联合分析结束，但没有收到最终结果。')
+  return result
+}

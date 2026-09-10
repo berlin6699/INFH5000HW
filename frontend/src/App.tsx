@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { ApiError, fetchDemo, runAnalysis, type AnalysisResult, type DemoData, type Symptom } from '@/api/client'
+import { analyseImage, ApiError, fetchDemo, runAnalysisStream, type AnalysisProgressEvent, type AnalysisResult, type DemoData, type ImagingResult, type Symptom } from '@/api/client'
 
 const symptomLabels: Record<string, string> = {
   fever: '发热', cough: '咳嗽', dyspnea: '呼吸困难',
@@ -10,6 +10,9 @@ const agentLabels: Record<string, string> = {
   history: '病史', triage: '分诊', imaging: '影像', monitoring: '监测',
   knowledge: '知识', coordinator: '协调',
 }
+const agentOrder = ['history', 'triage', 'imaging', 'monitoring', 'knowledge', 'coordinator'] as const
+type AgentStage = 'pending' | 'running' | 'completed'
+type JointProgress = { stages: Record<string, AgentStage>; message: string; completed: number; total: number }
 
 const translations: Record<string, string> = {
   'Essential hypertension': '原发性高血压',
@@ -76,6 +79,10 @@ function findingZh(text: string) {
   if (text.includes('Cardiac silhouette')) return '心影大小在正常范围内'
   if (text.includes('Residual fibrotic streak')) return '右肺底残留纤维条索影，与既往相比无明显变化'
   if (text.includes('No bony abnormality')) return '未见明显骨性异常'
+  const labelMap: Record<string, string> = { Atelectasis: '肺不张', Consolidation: '实变', Infiltration: '浸润影', Pneumothorax: '气胸', Edema: '肺水肿', Emphysema: '肺气肿', Fibrosis: '纤维化', Effusion: '胸腔积液', Pneumonia: '肺炎相关信号', Cardiomegaly: '心影增大', Nodule: '结节', Mass: '肿块', 'Lung Lesion': '肺部病灶', Fracture: '骨折', 'Lung Opacity': '肺部阴影', 'Enlarged Cardiomediastinum': '心纵隔增宽' }
+  for (const [english, chinese] of Object.entries(labelMap)) {
+    if (text.startsWith(`${english}:`)) return text.replace(english, chinese).replace('model score', '模型分数')
+  }
   return text
 }
 
@@ -86,9 +93,13 @@ function App() {
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [analysing, setAnalysing] = useState(false)
+  const [jointProgress, setJointProgress] = useState<JointProgress | null>(null)
   const [error, setError] = useState('')
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [imageName, setImageName] = useState('Demo chest X-ray preset')
+  const [imageFinding, setImageFinding] = useState<ImagingResult | null>(null)
+  const [imageLoading, setImageLoading] = useState(false)
+  const [imageError, setImageError] = useState('')
 
   useEffect(() => {
     fetchDemo().then((data) => {
@@ -104,8 +115,15 @@ function App() {
 
   async function analyse() {
     if (!demo) return
-    setAnalysing(true); setError('')
-    try { setResult(await runAnalysis(demo.patient.patient_id, symptoms, freeText)) }
+    setAnalysing(true); setError(''); setResult(null)
+    setJointProgress({ stages: Object.fromEntries(agentOrder.map((agent) => [agent, 'pending'])) as Record<string, AgentStage>, message: '正在创建多智能体共享上下文…', completed: 0, total: 6 })
+    const updateProgress = (event: AnalysisProgressEvent) => setJointProgress((current) => ({
+      stages: { ...(current?.stages ?? {}), [event.agent]: event.status },
+      message: event.message,
+      completed: event.completed,
+      total: event.total,
+    }))
+    try { setResult(await runAnalysisStream(demo.patient.patient_id, symptoms, freeText, updateProgress)) }
     catch (err: unknown) { setError(formatError(err)) }
     finally { setAnalysing(false) }
   }
@@ -115,10 +133,16 @@ function App() {
       itemIndex === index ? { ...item, present: !(item.present ?? true) } : item))
   }
 
-  function selectImage(file?: File) {
-    if (!file) return
+  async function selectImage(file?: File) {
+    if (!file || !demo) return
     if (imageUrl) URL.revokeObjectURL(imageUrl)
     setImageUrl(URL.createObjectURL(file)); setImageName(file.name)
+    setImageLoading(true); setImageError(''); setResult(null)
+    try {
+      setImageFinding(await analyseImage(demo.patient.patient_id, file))
+    } catch (err: unknown) {
+      setImageFinding(null); setImageError(formatError(err))
+    } finally { setImageLoading(false) }
   }
 
   if (loading) return <div className="loading-screen"><div className="pulse" />正在准备离线医疗辅助工作台…</div>
@@ -131,13 +155,14 @@ function App() {
     <header className="topbar">
       <div className="brand"><div className="brand-mark">P</div><div><strong>PULSELINE</strong><span>多模态医疗辅助工作台</span></div></div>
       <div className="group-credit"><strong>Group 25 · INFH5000 Project</strong><span>郝一帆 · 胡可 · 蓝嘉雪 · 孙博林 · 杨哲</span></div>
-      <div className="topbar-status"><span className="status-dot" /> 本地 · 离线 <span className="badge badge-amber">模拟智能体</span><span className="badge">无 API 调用</span></div>
+      <div className="topbar-status"><span className="status-dot" /> 本地运行 <span className="badge badge-amber">Mock 智能体</span><span className="badge badge-real">真实影像模型</span></div>
     </header>
     <div className="safety-strip"><span>教学研究原型</span>本系统不是医疗器械，输出不构成医学诊断，也不能替代专业医务人员。</div>
     <main>
-      <section className="hero-row"><div><p className="eyebrow">呼吸系统辅助 · 案例 001</p><h1>患者纵向健康评估</h1><p className="hero-copy">综合病史、当前症状、模拟影像和五天生命体征趋势，形成一份可解释的多智能体评估。</p></div>
+      <section className="hero-row"><div><p className="eyebrow">呼吸系统辅助 · 案例 001</p><h1>患者纵向健康评估</h1><p className="hero-copy">综合病史、当前症状、本地胸片模型和五天生命体征趋势，形成一份可解释的多智能体评估。</p></div>
         <button className="analyse-button" onClick={analyse} disabled={analysing}><span>{analysing ? '正在运行 6 个智能体…' : result ? '重新运行分析' : '运行多智能体分析'}</span><b>→</b></button>
       </section>
+      {jointProgress && <JointAnalysisPanel progress={jointProgress} analysing={analysing}/>}
       {error && <div className="error-banner">{error}</div>}
       <section className="assessment-grid">
         <article className={`risk-card ${riskClass}`}><div className="card-kicker">当前评估</div><div className="risk-value">{result ? riskZh(risk) : '—'}</div><div className="risk-label">风险等级</div>{result ? <div className="score-line"><span>综合评分</span><strong>{result.assessment.risk_score}/100</strong></div> : <p className="muted">运行工作流后生成风险等级</p>}</article>
@@ -146,11 +171,24 @@ function App() {
       </section>
       <section className="workspace-grid">
         <div className="left-column"><PatientCard demo={demo}/><SymptomCard symptoms={symptoms} freeText={freeText} setFreeText={setFreeText} toggle={toggleSymptom}/><TimelineCard timeline={demo.patient.timeline}/></div>
-        <div className="right-column"><MonitoringCard data={chartData} result={result}/><ImagingCard demo={demo} result={result} imageUrl={imageUrl} imageName={imageName} selectImage={selectImage}/><ReasoningCard result={result}/></div>
+        <div className="right-column"><MonitoringCard data={chartData} result={result}/><ImagingCard demo={demo} result={result} uploaded={imageFinding} imageUrl={imageUrl} imageName={imageName} loading={imageLoading} error={imageError} selectImage={selectImage}/><ReasoningCard result={result}/></div>
       </section>
     </main>
-    <footer><strong>Group 25 · INFH5000 Project</strong> · 郝一帆 · 胡可 · 蓝嘉雪 · 孙博林 · 杨哲<br/>全部病例数据均为合成数据 · 分析模式：确定性模拟 · 单端口本地运行</footer>
+    <footer><strong>Group 25 · INFH5000 Project</strong> · 郝一帆 · 胡可 · 蓝嘉雪 · 孙博林 · 杨哲<br/>病例数据为合成数据 · 智能体使用 Mock · 胸片使用本地研究模型 · 单端口本地运行</footer>
   </div>
+}
+
+function JointAnalysisPanel({ progress, analysing }: { progress: JointProgress; analysing: boolean }) {
+  const percent = Math.round((progress.completed / progress.total) * 100)
+  return <section className={`joint-analysis ${analysing ? 'is-running' : 'is-complete'}`} aria-live="polite">
+    <div className="joint-head"><div><div className="card-kicker">MULTI-AGENT COLLABORATION</div><h2>{analysing ? '正在进行联合分析' : '联合分析已完成'}</h2></div><strong>{percent}%</strong></div>
+    <div className="joint-track"><i style={{ width: `${percent}%` }}/></div>
+    <div className="agent-pipeline">{agentOrder.map((agent, index) => {
+      const state = progress.stages[agent] ?? 'pending'
+      return <div className={`pipeline-agent ${state}`} key={agent}><span>{state === 'completed' ? '✓' : index + 1}</span><div><strong>{agentLabels[agent]}智能体</strong><small>{state === 'running' ? '处理中' : state === 'completed' ? '已汇入共享上下文' : '等待上游结果'}</small></div></div>
+    })}</div>
+    <div className="joint-message"><span className="status-dot"/><p>{progress.message}</p><em>{progress.completed}/{progress.total} 个智能体完成</em></div>
+  </section>
 }
 
 function PatientCard({ demo }: { demo: DemoData }) {
@@ -178,9 +216,10 @@ function MonitoringCard({ data, result }: { data: Array<Record<string, string | 
   </article>
 }
 
-function ImagingCard({ demo, result, imageUrl, imageName, selectImage }: { demo: DemoData; result: AnalysisResult | null; imageUrl: string | null; imageName: string; selectImage: (file?: File) => void }) {
-  const imaging = result?.imaging ?? demo.imaging
-  return <article className="card imaging-card"><div className="section-heading"><div><div className="card-kicker">医学影像</div><h2>胸部 X 光片</h2></div><span className="badge badge-amber">演示 / 模拟输出</span></div><div className="imaging-layout"><label className="upload-zone"><input type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])}/>{imageUrl ? <img src={imageUrl} alt="用户选择的胸片预览"/> : <div className="xray-placeholder"><span>XR</span><p>选择胸片进行预览</p><small>模拟模式不会分析该图像</small></div>}<b>{imageName === 'Demo chest X-ray preset' ? '胸片模拟预设' : imageName}</b></label><div className="finding-list"><p className="provenance">系统没有运行真实影像模型。以下发现来自合成病例的预设模拟结果。</p>{imaging?.findings.slice(0, 4).map((finding) => <div className="finding" key={finding}><span>•</span>{findingZh(finding)}</div>)}</div></div></article>
+function ImagingCard({ demo, result, uploaded, imageUrl, imageName, loading, error, selectImage }: { demo: DemoData; result: AnalysisResult | null; uploaded: ImagingResult | null; imageUrl: string | null; imageName: string; loading: boolean; error: string; selectImage: (file?: File) => void }) {
+  const imaging = uploaded ?? result?.imaging ?? demo.imaging
+  const real = imaging?.source_mode === 'real_model'
+  return <article className="card imaging-card"><div className="section-heading"><div><div className="card-kicker">医学影像</div><h2>胸部 X 光片</h2></div><span className={`badge ${real ? 'badge-real' : 'badge-amber'}`}>{real ? '本地真实模型输出' : '演示 / 模拟输出'}</span></div><div className="imaging-layout"><label className="upload-zone"><input type="file" accept="image/png,image/jpeg" onChange={(event) => selectImage(event.target.files?.[0])}/>{imageUrl ? <img src={imageUrl} alt="用户选择的胸片预览"/> : <div className="xray-placeholder"><span>XR</span><p>选择 PNG / JPEG 胸片</p><small>上传后由本地 CPU 模型分析</small></div>}<b>{loading ? '本地模型分析中…' : imageName === 'Demo chest X-ray preset' ? '胸片模拟预设' : imageName}</b></label><div className="finding-list">{error && <p className="provenance provenance-error">{error}；仍可使用原有 Mock 流程。</p>}<p className={`provenance ${real ? 'provenance-real' : ''}`}>{real ? `${imaging?.provenance} 模型分数不是诊断或临床概率。` : '当前为合成病例的预设模拟结果；上传胸片后会切换为本地真实模型。'}</p>{imaging?.findings.slice(0, 5).map((finding) => <div className="finding" key={finding}><span>•</span>{findingZh(finding)}</div>)}</div></div></article>
 }
 
 function ReasoningCard({ result }: { result: AnalysisResult | null }) {

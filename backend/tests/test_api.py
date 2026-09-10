@@ -2,9 +2,8 @@
 
 `/api/system/info` drives every honesty badge in the UI, so its shape is part
 of the contract, not an implementation detail. These tests pin the keys the
-frontend's hand-written `SystemInfo` interface declares, and assert the two
-invariants that must never flip: imaging is not a real model, and the system
-does not produce a diagnosis.
+frontend's hand-written `SystemInfo` interface declares and preserve the
+non-diagnosis invariant.
 """
 
 from __future__ import annotations
@@ -56,7 +55,7 @@ def test_system_info_top_level_keys(client: TestClient) -> None:
     ("section", "keys"),
     [
         ("llm", {"provider", "enabled", "model", "note"}),
-        ("imaging", {"mode", "is_real_model", "badge", "supported_modalities"}),
+        ("imaging", {"mode", "is_real_model", "badge", "supported_modalities", "local_model"}),
         ("rag", {"retriever", "top_k"}),
         ("safety", {"disclaimer", "guard_enforced", "produces_diagnosis"}),
     ],
@@ -107,10 +106,11 @@ def test_provider_with_a_key_is_enabled_and_names_its_model(
     get_settings.cache_clear()
 
 
-def test_imaging_never_claims_a_real_model(client: TestClient) -> None:
-    """Hardcoded False on purpose — no CXR model is integrated in this project."""
+def test_imaging_reports_local_model_capability(client: TestClient) -> None:
     imaging = client.get("/api/system/info").json()["imaging"]
-    assert imaging["is_real_model"] is False
+    assert imaging["is_real_model"] == imaging["local_model"]["available"]
+    assert imaging["local_model"]["device"] == "cpu"
+    assert "DenseNet121" in imaging["local_model"]["model"]
     assert imaging["supported_modalities"] == ["chest_xray"]
 
 
@@ -126,14 +126,14 @@ def test_uploaded_report_mode_carries_the_report_badge(
     """Parsing a real radiology report is still not a real imaging model.
 
     The badge differs so the UI does not label honest report-derived findings
-    as fabricated presets, but `is_real_model` stays False in both modes.
+    as fabricated presets. Local-model availability is reported separately.
     """
     monkeypatch.setenv("MEDAI_IMAGING_MODE", "uploaded_report")
     get_settings.cache_clear()
     imaging = client.get("/api/system/info").json()["imaging"]
     assert imaging["mode"] == "uploaded_report"
     assert imaging["badge"] == REPORT_BADGE_TEXT
-    assert imaging["is_real_model"] is False
+    assert imaging["is_real_model"] == imaging["local_model"]["available"]
     get_settings.cache_clear()
 
 

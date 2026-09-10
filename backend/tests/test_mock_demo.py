@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from fastapi.testclient import TestClient
 
 from app.main import app
+import app.main as main_module
 
 
 def test_demo_bootstrap_contains_all_dashboard_inputs(
@@ -46,3 +48,28 @@ def test_full_mock_workflow_is_high_risk_and_transparent(
     assert "MOCK OUTPUT" in result["imaging"]["badge"]
     assert result["assessment"]["historical_changes"]
     assert any("No LLM" in item for item in result["assessment"]["limitations"])
+
+
+def test_streaming_workflow_reports_agents_before_final_result(
+    seeded_db: Path, monkeypatch,
+) -> None:
+    monkeypatch.setattr(main_module, "ANALYSIS_STAGE_DELAY_SECONDS", 0)
+    with TestClient(app) as client:
+        demo = client.get("/api/demo").json()
+        response = client.post(
+            "/api/analysis/stream",
+            json={
+                "patient_id": "PT-DEMO-001",
+                "symptoms": demo["symptoms"]["symptoms"],
+                "free_text": demo["symptoms"]["free_text"],
+            },
+        )
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines()]
+    progress = [event for event in events if event["type"] == "progress"]
+    assert [event["agent"] for event in progress if event["status"] == "running"] == [
+        "history", "triage", "imaging", "monitoring", "knowledge", "coordinator"
+    ]
+    assert progress[-1]["completed"] == 6
+    assert events[-1]["type"] == "result"
+    assert events[-1]["data"]["status"] == "completed"

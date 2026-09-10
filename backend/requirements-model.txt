@@ -1,0 +1,3 @@
+# Optional local Chest X-ray model layer. start.ps1 installs the matching CPU
+# PyTorch wheels first, then this file.
+torchxrayvision==1.5.4

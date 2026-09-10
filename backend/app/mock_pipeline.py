@@ -1,14 +1,16 @@
 """Small, fully-offline multi-agent workflow used by the first demo.
 
 History and monitoring use the project's real deterministic implementations.
-The remaining agents intentionally use transparent demo rules and preset data;
-no model weights, external API, or diagnosis generation is involved.
+The remaining agents intentionally use transparent demo rules and preset data.
+When a local imaging result has already been generated, the Imaging Agent reads
+that structured result; no external API or diagnosis generation is involved.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from time import perf_counter
+from typing import Callable
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -143,7 +145,7 @@ def run_imaging(session: Session, patient_id: str) -> tuple[ImagingFinding, Agen
     row = session.scalars(
         select(MedicalImageRow)
         .where(MedicalImageRow.patient_id == patient_id)
-        .order_by(MedicalImageRow.study_date.desc())
+        .order_by(MedicalImageRow.study_date.desc(), MedicalImageRow.created_at.desc())
     ).first()
     if row is None or not row.findings:
         finding = ImagingFinding(
@@ -240,9 +242,14 @@ def run_coordinator(run_id: str, patient_id: str, history, triage, monitoring, i
         rules.append(FiredRule(rule_id="DEMO-COORD-TREND", category="monitoring", description="Multiple monitoring signals show sustained deterioration.", contribution=20, evidence=monitoring.summary))
         key_findings.append("Continuous monitoring shows an adverse multi-day trend.")
     acute = [a for a in imaging.abnormalities if a.acuity == Acuity.ACUTE]
+    model_signals = imaging.abnormalities if imaging.is_real_model else []
     if acute:
         rules.append(FiredRule(rule_id="DEMO-COORD-IMAGE", category="imaging", description="Preset imaging includes an acute abnormality.", contribution=15, evidence="Mock imaging output only."))
         key_findings.append("Mock chest X-ray output contains acute abnormal findings.")
+    elif model_signals:
+        strongest = max(model_signals, key=lambda a: a.confidence)
+        rules.append(FiredRule(rule_id="DEMO-COORD-IMAGE-MODEL", category="imaging", description="The local research model produced an above-threshold imaging signal.", contribution=10, evidence=f"{strongest.label.value}: score={strongest.confidence:.3f}; not a diagnosis."))
+        key_findings.append(f"Local chest X-ray model signal: {strongest.label.value} ({strongest.confidence:.0%}).")
     if history.previous_findings:
         rules.append(FiredRule(rule_id="DEMO-COORD-HISTORY", category="history", description="Relevant prior pulmonary findings are present.", contribution=5, evidence=f"{len(history.previous_findings)} prior coded finding(s)."))
         key_findings.append("The patient has relevant previous pulmonary imaging findings.")
@@ -296,34 +303,64 @@ def run_coordinator(run_id: str, patient_id: str, history, triage, monitoring, i
         care_advice="Seek timely assessment from a qualified healthcare professional. If symptoms feel severe or rapidly worsen, use local emergency services.",
         key_findings=key_findings,
         historical_changes=changes,
-        longitudinal_summary="Current respiratory symptoms, mock imaging findings and monitoring deterioration are more concerning than the recorded baseline.",
-        reasoning_summary="The demo coordinator combined history, symptoms, preset imaging, temporal monitoring trends and local placeholder knowledge. No diagnosis was produced.",
+        longitudinal_summary="Current respiratory symptoms, imaging observations and monitoring deterioration are more concerning than the recorded baseline.",
+        reasoning_summary="The demo coordinator combined history, symptoms, imaging observations, temporal monitoring trends and local placeholder knowledge. No diagnosis was produced.",
         evidence=knowledge.evidence,
         contributing_agents=[a.value for a in AgentName if a != AgentName.COORDINATOR],
-        limitations=["Synthetic patient data.", "Imaging is preset DEMO / MOCK OUTPUT.", "Knowledge passages are educational placeholders.", "No LLM or medical image model was called."],
+        limitations=["Synthetic patient data.", "Imaging scores are research-model signals, not diagnoses or calibrated clinical probabilities." if imaging.is_real_model else "Imaging is preset DEMO / MOCK OUTPUT.", "Knowledge passages are educational placeholders.", "No LLM was called."],
         disclaimer=DISCLAIMER,
     )
     return final, _trace(AgentName.COORDINATOR, final, started, rules=rules)
 
 
-def run_mock_analysis(session: Session, request: AnalysisRequest) -> AnalysisResult:
+ProgressCallback = Callable[[AgentName, str, str, int, int], None]
+
+
+def run_mock_analysis(
+    session: Session,
+    request: AnalysisRequest,
+    progress: ProgressCallback | None = None,
+) -> AnalysisResult:
+    """Run all six agents, optionally reporting their real execution stages."""
     started_at = utcnow()
     clock = perf_counter()
     run_id = f"RUN-{uuid4().hex[:10]}"
+
+    def report(agent: AgentName, status: str, message: str, completed: int) -> None:
+        if progress is not None:
+            progress(agent, status, message, completed, 6)
+
+    report(AgentName.HISTORY, "running", "正在整理既往病史并建立患者时间线", 0)
     history, history_trace = run_history(session, request.patient_id)
+    report(AgentName.HISTORY, "completed", "病史结构化完成，已生成纵向患者基线", 1)
+
+    report(AgentName.TRIAGE, "running", "正在提取当前症状并识别预警信号", 1)
+    triage, triage_trace = run_triage(request)
+    report(AgentName.TRIAGE, "completed", "当前症状和分诊信息已加入共享上下文", 2)
+
+    report(AgentName.IMAGING, "running", "正在读取胸片模型或 Mock 的结构化结果", 2)
+    imaging, imaging_trace = run_imaging(session, request.patient_id)
+    report(AgentName.IMAGING, "completed", "影像征象及来源信息已加入共享上下文", 3)
+
+    report(AgentName.MONITORING, "running", "正在分析血氧、心率等连续变化趋势", 3)
     monitoring, monitoring_trace = run_monitoring(session, request.patient_id)
     if history is None or monitoring is None:
         raise ValueError("History or monitoring data could not be loaded for this patient.")
-    triage, triage_trace = run_triage(request)
-    imaging, imaging_trace = run_imaging(session, request.patient_id)
+    report(AgentName.MONITORING, "completed", "生命体征趋势和个人基线差异已加入共享上下文", 4)
+
+    report(AgentName.KNOWLEDGE, "running", "正在根据前四个智能体的发现检索相关依据", 4)
     knowledge, knowledge_trace = run_knowledge(triage, monitoring, imaging)
+    report(AgentName.KNOWLEDGE, "completed", "知识依据已返回，准备进行联合融合", 5)
+
+    report(AgentName.COORDINATOR, "running", "正在联合病史、症状、影像、趋势和知识进行纵向推理", 5)
     final, coordinator_trace = run_coordinator(run_id, request.patient_id, history, triage, monitoring, imaging, knowledge)
+    report(AgentName.COORDINATOR, "completed", "联合分析完成，正在生成最终可解释评估", 6)
     traces = [history_trace, triage_trace, imaging_trace, monitoring_trace, knowledge_trace, coordinator_trace]
     return AnalysisResult(
         run_id=run_id,
         patient_id=request.patient_id,
         status=RunStatus.COMPLETED,
-        config=RunConfig(llm_provider="mock", llm_enabled=False, rag_enabled=False, imaging_mode="mock_preset", longitudinal_enabled=True),
+        config=RunConfig(llm_provider="mock", llm_enabled=False, rag_enabled=False, imaging_mode=imaging.source_mode, longitudinal_enabled=True),
         history=history,
         triage=triage,
         imaging=imaging,

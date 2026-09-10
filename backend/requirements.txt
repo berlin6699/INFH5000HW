@@ -1,8 +1,8 @@
 # Backend dependencies — verified working on Python 3.11.16 / macOS arm64.
 # Install with:  make setup
-# NOTE: torch is intentionally absent. The Imaging Agent uses report-text
-# parsing (source_mode="uploaded_report"), not a CNN, so no deep-learning
-# runtime is required anywhere in this project.
+# PyTorch and TorchXRayVision are isolated in requirements-model.txt because
+# their CPU wheels come from PyTorch's own package index. start.ps1 installs
+# both dependency sets automatically.
 
 # --- Web layer ---
 fastapi==0.141.1

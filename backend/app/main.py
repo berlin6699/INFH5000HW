@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import time
 from contextlib import asynccontextmanager
+from datetime import date
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,13 +22,15 @@ from app.config import get_settings
 from app.agents.history import run_history
 from app.db.models import MedicalImageRow, MonitoringRecordRow, PatientRow
 from app.db.seed import load_fixture, seed
-from app.db.session import get_session, init_db
+from app.db.session import get_session, get_session_factory, init_db
 from app.mock_pipeline import run_mock_analysis
 from app.safety import DISCLAIMER
-from app.schemas import AnalysisRequest, AnalysisResult, MOCK_BADGE_TEXT, REPORT_BADGE_TEXT
+from app.schemas import AnalysisRequest, AnalysisResult, ImagingFinding, MOCK_BADGE_TEXT, REPORT_BADGE_TEXT, utcnow
+from app.services.imaging_model import ImagingModelError, analyse_image_bytes, model_status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("medai")
+ANALYSIS_STAGE_DELAY_SECONDS = 0.65
 
 
 @asynccontextmanager
@@ -70,6 +78,7 @@ def system_info() -> dict[str, object]:
     backend keeps the badge honest instead of hardcoded in JSX.
     """
     s = get_settings()
+    local_model = model_status()
     return {
         "llm": {
             "provider": s.llm_provider,
@@ -89,13 +98,10 @@ def system_info() -> dict[str, object]:
         },
         "imaging": {
             "mode": s.imaging_mode,
-            # No CXR model is integrated in this project; see README "Imaging
-            # output provenance". Kept as a field so the UI never has to infer it.
-            "is_real_model": False,
-            "badge": (
-                MOCK_BADGE_TEXT if s.imaging_mode == "mock_preset" else REPORT_BADGE_TEXT
-            ),
+            "is_real_model": local_model["available"],
+            "badge": MOCK_BADGE_TEXT if s.imaging_mode == "mock_preset" else REPORT_BADGE_TEXT,
             "supported_modalities": ["chest_xray"],
+            "local_model": local_model,
         },
         "rag": {"retriever": s.rag_retriever, "top_k": s.rag_top_k},
         "safety": {
@@ -132,7 +138,7 @@ def demo_data(session: Session = Depends(get_session)) -> dict[str, object]:
     image = session.scalars(
         select(MedicalImageRow)
         .where(MedicalImageRow.patient_id == patient.id)
-        .order_by(MedicalImageRow.study_date.desc())
+        .order_by(MedicalImageRow.study_date.desc(), MedicalImageRow.created_at.desc())
     ).first()
     fixture = load_fixture()
     return {
@@ -154,6 +160,52 @@ def demo_data(session: Session = Depends(get_session)) -> dict[str, object]:
     }
 
 
+@app.get("/api/imaging/status")
+def imaging_status() -> dict[str, object]:
+    return model_status()
+
+
+@app.post("/api/imaging/analyze", response_model=ImagingFinding)
+async def analyse_imaging(
+    patient_id: str = Form(...),
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+) -> ImagingFinding:
+    """Analyse one local PNG/JPEG; persist only structured output, not pixels."""
+    _ensure_demo_patient(session)
+    if patient_id != "PT-DEMO-001":
+        raise HTTPException(status_code=404, detail="The first MVP supports the demo patient only")
+    if file.content_type not in {"image/png", "image/jpeg"}:
+        raise HTTPException(status_code=415, detail="请上传 PNG 或 JPEG 格式的胸片。")
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="图像不能超过 10 MB。")
+
+    image_id = f"IMG-{uuid4().hex[:12]}"
+    today = date.today()
+    try:
+        finding = analyse_image_bytes(data, image_id=image_id, study_date=today)
+    except ImagingModelError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    session.add(
+        MedicalImageRow(
+            id=image_id,
+            patient_id=patient_id,
+            study_date=today,
+            modality="chest_xray",
+            file_path=None,
+            source_mode=finding.source_mode.value,
+            provenance=finding.provenance,
+            badge=finding.badge,
+            findings=finding.model_dump(mode="json"),
+            created_at=utcnow(),
+        )
+    )
+    session.flush()
+    return finding
+
+
 @app.post("/api/analysis/run", response_model=AnalysisResult)
 def analyse(request: AnalysisRequest, session: Session = Depends(get_session)) -> AnalysisResult:
     _ensure_demo_patient(session)
@@ -163,6 +215,67 @@ def analyse(request: AnalysisRequest, session: Session = Depends(get_session)) -
         return run_mock_analysis(session, request)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/analysis/stream")
+async def analyse_stream(request: AnalysisRequest) -> StreamingResponse:
+    """Stream genuine agent-stage events followed by the final assessment."""
+    queue: asyncio.Queue[dict[str, object] | None] = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+
+    def worker() -> None:
+        session = get_session_factory()()
+        try:
+            _ensure_demo_patient(session)
+            if request.patient_id != "PT-DEMO-001":
+                raise ValueError("The first MVP supports the demo patient only")
+
+            def progress(agent, status, message, completed, total) -> None:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    {
+                        "type": "progress",
+                        "agent": agent.value,
+                        "status": status,
+                        "message": message,
+                        "completed": completed,
+                        "total": total,
+                    },
+                )
+                if status == "running" and ANALYSIS_STAGE_DELAY_SECONDS > 0:
+                    time.sleep(ANALYSIS_STAGE_DELAY_SECONDS)
+
+            result = run_mock_analysis(session, request, progress=progress)
+            session.commit()
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "result", "data": result.model_dump(mode="json")},
+            )
+        except Exception as exc:  # streamed responses cannot change HTTP status mid-body
+            session.rollback()
+            log.exception("Streaming analysis failed")
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"type": "error", "message": str(exc)},
+            )
+        finally:
+            session.close()
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+    async def event_stream():
+        task = asyncio.create_task(asyncio.to_thread(worker))
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+        await task
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 # In the one-port production-style demo FastAPI serves the Vite build itself.
